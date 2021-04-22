@@ -60,7 +60,7 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
   static final FetchStrategy _defaultFetchStrategyFunction = const FetchStrategyBuilder().build();
 
   /// The [FetchStrategy] that [NetworkImageWithRetry] uses by default.
-  static Future<FetchInstructions> defaultFetchStrategy(Uri uri, FetchFailure failure) {
+  static Future<FetchInstructions>? defaultFetchStrategy(Uri uri, FetchFailure failure) {
     return _defaultFetchStrategyFunction(uri, failure);
   }
 
@@ -72,7 +72,7 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
   @override
   ImageStreamCompleter load(NetworkImageWithRetry key, DecoderCallback decode) {
     return OneFrameImageStreamCompleter(
-        _loadWithRetry(key, decode),
+        _loadWithRetry(key, decode) as Future<ImageInfo>,
         informationCollector: () sync* {
           yield ErrorDescription('Image provider: $this');
           yield ErrorDescription('Image key: $key');
@@ -101,22 +101,22 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
     }());
   }
 
-  Future<ImageInfo> _loadWithRetry(NetworkImageWithRetry key, DecoderCallback decode) async {
+  Future<ImageInfo?>? _loadWithRetry(NetworkImageWithRetry key, DecoderCallback decode) async {
     assert(key == this);
 
     final Stopwatch stopwatch = Stopwatch()..start();
     final Uri resolved = Uri.base.resolve(key.url);
-    FetchInstructions instructions = await fetchStrategy(resolved, null);
+    FetchInstructions instructions = await fetchStrategy(resolved, null)!;
     _debugCheckInstructions(instructions);
     int attemptCount = 0;
-    FetchFailure lastFailure;
+    FetchFailure? lastFailure;
 
     while (!instructions.shouldGiveUp) {
       attemptCount += 1;
-      io.HttpClientRequest request;
+      io.HttpClientRequest? request;
       try {
-        request = await _client.getUrl(instructions.uri).timeout(instructions.timeout);
-        final io.HttpClientResponse response = await request.close().timeout(instructions.timeout);
+        request = await _client.getUrl(instructions.uri).timeout(instructions.timeout!);
+        final io.HttpClientResponse response = await request.close().timeout(instructions.timeout!);
 
         if (response == null || response.statusCode != 200) {
           throw FetchFailure._(
@@ -129,7 +129,7 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
         final _Uint8ListBuilder builder = await response.fold(
           _Uint8ListBuilder(),
               (_Uint8ListBuilder buffer, List<int> bytes) => buffer..add(bytes),
-        ).timeout(instructions.timeout);
+        ).timeout(instructions.timeout!);
 
         final Uint8List bytes = builder.data;
 
@@ -154,7 +154,7 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
                 attemptCount: attemptCount,
                 originalException: error,
               );
-        instructions = await fetchStrategy(instructions.uri, lastFailure);
+        instructions = await fetchStrategy(instructions.uri, lastFailure)!;
         _debugCheckInstructions(instructions);
       }
     }
@@ -164,8 +164,8 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
 
     assert(lastFailure != null);
 
-    FlutterError.onError(FlutterErrorDetails(
-      exception: lastFailure,
+    FlutterError.onError!(FlutterErrorDetails(
+      exception: lastFailure!,
       library: 'package:flutter_image',
       context: ErrorDescription('$runtimeType failed to load ${instructions.uri}'),
     ));
@@ -207,14 +207,14 @@ class NetworkImageWithRetry extends ImageProvider<NetworkImageWithRetry> {
 /// [NetworkImageWithRetry] to try again.
 ///
 /// See [NetworkImageWithRetry.defaultFetchStrategy] for an example.
-typedef FetchStrategy = Future<FetchInstructions> Function(Uri uri, FetchFailure failure);
+typedef FetchStrategy = Future<FetchInstructions>? Function(Uri uri, FetchFailure? failure);
 
 /// Instructions [NetworkImageWithRetry] uses to fetch the image.
 @immutable
 class FetchInstructions {
   /// Instructs [NetworkImageWithRetry] to give up trying to download the image.
   const FetchInstructions.giveUp({
-    @required this.uri,
+    required this.uri,
     this.alternativeImage,
   })
       : shouldGiveUp = true,
@@ -223,8 +223,8 @@ class FetchInstructions {
   /// Instructs [NetworkImageWithRetry] to attempt to download the image from
   /// the given [uri] and [timeout] if it takes too long.
   const FetchInstructions.attempt({
-    @required this.uri,
-    @required this.timeout,
+    required this.uri,
+    required this.timeout,
   }) : shouldGiveUp = false,
        alternativeImage = null;
 
@@ -235,13 +235,13 @@ class FetchInstructions {
   final bool shouldGiveUp;
 
   /// Timeout for the next network call.
-  final Duration timeout;
+  final Duration? timeout;
 
   /// The URI to use on the next attempt.
   final Uri uri;
 
   /// Instructs to give up and use this image instead.
-  final Future<ImageInfo> alternativeImage;
+  final Future<ImageInfo>? alternativeImage;
 
   @override
   String toString() {
@@ -258,8 +258,8 @@ class FetchInstructions {
 @immutable
 class FetchFailure implements Exception {
   const FetchFailure._({
-    @required this.totalDuration,
-    @required this.attemptCount,
+    required this.totalDuration,
+    required this.attemptCount,
     this.httpStatusCode,
     this.originalException,
   }) : assert(totalDuration != null),
@@ -276,7 +276,7 @@ class FetchFailure implements Exception {
   final int attemptCount;
 
   /// HTTP status code, such as 500.
-  final int httpStatusCode;
+  final int? httpStatusCode;
 
   /// The exception that caused the fetch failure.
   final dynamic originalException;
@@ -325,7 +325,7 @@ class _Uint8ListBuilder {
 }
 
 /// Determines whether the given HTTP [statusCode] is transient.
-typedef TransientHttpStatusCodePredicate = bool Function(int statusCode);
+typedef TransientHttpStatusCodePredicate = bool Function(int? statusCode);
 
 /// Builds a [FetchStrategy] function that retries up to a certain amount of
 /// times for up to a certain amount of time.
@@ -395,7 +395,7 @@ class FetchStrategyBuilder {
   /// Builds a [FetchStrategy] that operates using the properties of this
   /// builder.
   FetchStrategy build() {
-    return (Uri uri, FetchFailure failure) async {
+    return (Uri uri, FetchFailure? failure) async {
       if (failure == null) {
         // First attempt. Just load.
         return FetchInstructions.attempt(
